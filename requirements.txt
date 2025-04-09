@@ -1,5 +1,5 @@
 streamlit
-scrapy
+scrapy>=2.12.0
 duckduckgo-search
 qdrant-client
 llama-index==0.10.28
