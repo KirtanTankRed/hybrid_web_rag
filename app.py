@@ -6,13 +6,28 @@ import sys
 import asyncio
 from typing import List, Tuple
 
-# Install AsyncioSelectorReactor before any Twisted import
+# --- Safe AsyncioReactor Setup for Streamlit ---
+import asyncio as _asyncio
 from twisted.internet import asyncioreactor
-if sys.platform == "win32":
-    import asyncio as _asyncio
-    _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
-asyncioreactor.install()
 
+# On Windows, set appropriate event loop policy
+if sys.platform == "win32":
+    _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+
+# Ensure there's an active loop before installing reactor
+try:
+    loop = _asyncio.get_event_loop()
+except RuntimeError:
+    loop = _asyncio.new_event_loop()
+    _asyncio.set_event_loop(loop)
+
+# Install the AsyncioSelectorReactor, ignoring if already installed
+try:
+    asyncioreactor.install(loop=loop)
+except Exception:
+    pass
+
+# --- Imports after reactor setup ---
 import scrapy
 from scrapy.crawler import CrawlerRunner
 from scrapy.utils.log import configure_logging
@@ -32,25 +47,28 @@ QDRANT_API_KEY = st.secrets["QDRANT_API_KEY"]
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SEARCH_RESULTS = int(st.secrets.get("SEARCH_RESULTS", 5))
 
+# Set OpenAI key for embedding
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
-# --- Clients ---
+# --- Clients Setup ---
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 COLL = "real_estate_docs"
 vector_store    = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
 storage_context = StorageContext.from_defaults(vector_store=vector_store)
 embed_model     = OpenAIEmbedding()
 
-# --- Web search ---
+# --- Web Search Function ---
 def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
     urls, snippets = [], []
     with DDGS() as ddgs:
         for i, r in enumerate(ddgs.text(query), 1):
-            urls.append(r["href"]); snippets.append(r["body"])
-            if i >= top_n: break
+            urls.append(r["href"])
+            snippets.append(r["body"])
+            if i >= top_n:
+                break
     return urls, snippets
 
-# --- Scrapy Spider & Runner Setup ---
+# --- Scrapy Spider & Runner ---
 scraped: List[str] = []
 
 class Spider(scrapy.Spider):
@@ -65,7 +83,7 @@ class Spider(scrapy.Spider):
         if txt:
             scraped.append(txt)
 
-configure_logging({"LOG_LEVEL":"ERROR"})
+configure_logging({"LOG_LEVEL": "ERROR"})
 runner = CrawlerRunner()
 
 @defer.inlineCallbacks
@@ -73,12 +91,11 @@ def _crawl(urls: List[str]):
     yield runner.crawl(Spider, urls=urls)
 
 async def scrape_async(urls: List[str]) -> List[str]:
-    """Run Scrapy crawl asynchronously and return scraped texts."""
     scraped.clear()
     await _crawl(urls)
     return scraped.copy()
 
-# --- Indexing & Query ---
+# --- Indexing & Query Helpers ---
 def load_index(texts: List[str]) -> VectorStoreIndex:
     names = [c.name for c in qdrant_client.get_collections().collections]
     if COLL in names:
@@ -94,6 +111,7 @@ def query_index(idx: VectorStoreIndex, q: str) -> str:
 # --- Streamlit UI ---
 st.title("Hybrid Web‑RAG System (Async Scrapy)")
 
+# Input
 query = st.text_input("Enter your query:")
 
 st.subheader("1. Select Modes")
@@ -108,16 +126,20 @@ if st.button("Submit") and query:
     st.info("🚀 Starting pipeline...")
     user_urls = [u.strip() for u in urls_input.split(",") if u.strip()]
 
-    # docs_only
+    # Stage 1: docs_only
     if mode == "docs_only":
         st.info("📚 Loading existing index (docs_only)")
+        names = [c.name for c in qdrant_client.get_collections().collections]
+        if COLL not in names:
+            st.warning(f"Collection '{COLL}' not found. Use web_only or docs_and_web first.")
+            st.stop()
         idx = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
         answer = query_index(idx, query)
         st.success("✅ Completed docs_only query")
         st.write(answer)
         st.stop()
 
-    # Determine effective web_mode
+    # Stage 2: Determine effective web_mode
     st.info("🔧 Determining web_mode")
     mode_used = web_mode
     if web_mode == "auto":
@@ -126,7 +148,7 @@ if st.button("Submit") and query:
 
     texts: List[str] = []
 
-    # Scrape user URLs if needed
+    # Stage 3: Scrape user URLs if needed
     if mode_used in ("user_only", "hybrid"):
         st.info("🌐 Scraping user-provided URLs")
         if not user_urls:
@@ -135,7 +157,7 @@ if st.button("Submit") and query:
         texts += asyncio.run(scrape_async(user_urls))
         st.write(f"Scraped {len(texts)} paragraphs from user URLs")
 
-    # Search & scrape if needed
+    # Stage 4: Search & scrape if needed
     if mode_used in ("search_only", "hybrid"):
         st.info("🔎 Performing web search")
         search_urls, _ = ddg_search(query, top_n)
@@ -144,7 +166,7 @@ if st.button("Submit") and query:
         texts += asyncio.run(scrape_async(search_urls))
         st.write(f"Total scraped paragraphs: {len(texts)}")
 
-    # Indexing
+    # Stage 5: Indexing
     st.info("📦 Building or loading index")
     if mode == "web_only":
         idx = load_index(texts)
@@ -154,7 +176,7 @@ if st.button("Submit") and query:
         idx.storage_context.persist()
     st.success("✅ Index ready")
 
-    # Querying
+    # Stage 6: Querying
     st.info("🤖 Querying RAG index")
     answer = query_index(idx, query)
     st.success("✅ Query complete")
