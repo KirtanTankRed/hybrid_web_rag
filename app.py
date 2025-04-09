@@ -12,7 +12,7 @@ from qdrant_client import QdrantClient
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index import Document
+from llama_index.core.schema import Document
 
 # --- Secrets from Streamlit ---
 QDRANT_URL     = st.secrets["QDRANT_URL"]
