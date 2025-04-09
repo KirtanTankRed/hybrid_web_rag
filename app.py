@@ -1,10 +1,8 @@
 # streamlit_app.py
-
 import streamlit as st
 import os
 import sys
 import asyncio
-from typing import List, Tuple
 
 # --- Safe AsyncioReactor Setup for Streamlit ---
 import asyncio as _asyncio
@@ -26,6 +24,11 @@ try:
     asyncioreactor.install(loop=loop)
 except Exception:
     pass
+    
+
+from typing import List, Tuple
+
+
 
 # --- Imports after reactor setup ---
 import scrapy
