@@ -80,63 +80,67 @@ st.title("Hybrid Web‑RAG System")
 
 query = st.text_input("Enter your query:")
 
-st.subheader("Content Mode")
-mode = st.selectbox("Choose how to source documents:", ["docs_only", "web_only", "docs_and_web"])
-if mode == "docs_only":
-    st.caption("docs_only: Query only existing indexed documents; no new web scraping or search.")
-elif mode == "web_only":
-    st.caption("web_only: Perform web ingestion (scrape/search) based on Web Mode, then query.")
-else:
-    st.caption("docs_and_web: Combine existing index with new web ingestion before querying.")
+st.subheader("1. Select Modes")
+mode = st.selectbox("Content Mode", ["docs_only", "web_only", "docs_and_web"])
+web_mode = st.selectbox("Web Mode", ["auto", "user_only", "search_only", "hybrid"])
 
-st.subheader("Web Mode (for web_only or docs_and_web)")
-web_mode = st.selectbox("Choose web ingestion strategy:", ["auto", "user_only", "search_only", "hybrid"])
-if web_mode == "auto":
-    st.caption("auto: Use user URLs if provided; otherwise perform a web search.")
-elif web_mode == "user_only":
-    st.caption("user_only: Scrape only the user‑provided URLs; no search.")
-elif web_mode == "search_only":
-    st.caption("search_only: Ignore user URLs; perform a web search and scrape those results.")
-else:
-    st.caption("hybrid: Scrape user URLs first, then perform a web search and scrape those results.")
-
+st.subheader("2. Provide Inputs")
 urls_input = st.text_area("User URLs (comma-separated)", "")
 top_n = st.slider("Top search results to ingest", 1, 10, SEARCH_RESULTS)
 
 if st.button("Submit") and query:
+    st.info("🚀 Starting pipeline...")
     user_urls = [u.strip() for u in urls_input.split(",") if u.strip()]
 
-    # docs_only
+    # Stage 1: docs_only?
     if mode == "docs_only":
+        st.info("📚 Stage: Loading existing index (docs_only)")
         idx = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
         answer = query_index(idx, query)
+        st.success("✅ Completed docs_only query")
         st.write(answer)
         st.stop()
 
-    # Determine effective web_mode
+    # Stage 2: Determine effective web_mode
+    st.info("🔧 Stage: Determining web_mode")
     mode_used = web_mode
     if web_mode == "auto":
         mode_used = "user_only" if user_urls else "search_only"
+    st.write(f"Selected web_mode: **{mode_used}**")
 
     texts: List[str] = []
+
+    # Stage 3: Scrape user URLs if needed
     if mode_used in ("user_only", "hybrid"):
+        st.info("🌐 Stage: Scraping user-provided URLs")
         if not user_urls:
             st.error("user_only or hybrid mode requires at least one URL.")
             st.stop()
         texts += scrape(user_urls)
-    if mode_used in ("search_only", "hybrid"):
-        search_urls, _ = ddg_search(query, top_n)
-        texts += scrape(search_urls)
+        st.write(f"Scraped {len(texts)} paragraphs from user URLs")
 
+    # Stage 4: Search & scrape if needed
+    if mode_used in ("search_only", "hybrid"):
+        st.info("🔎 Stage: Performing web search")
+        search_urls, _ = ddg_search(query, top_n)
+        st.write(f"Search returned {len(search_urls)} URLs")
+        st.info("🌐 Stage: Scraping search result URLs")
+        texts += scrape(search_urls)
+        st.write(f"Total scraped paragraphs: {len(texts)}")
+
+    # Stage 5: Indexing
+    st.info("📦 Stage: Building or loading index")
     if mode == "web_only":
         idx = load_index(texts)
     else:  # docs_and_web
-        # Combine existing and new: for simplicity, we rebuild with new texts only.
-        # In production, you may fetch existing docs too.
-        idx = VectorStoreIndex.from_documents([Document(t) for t in texts],
-                                              storage_context=storage_context,
-                                              embed_model=embed_model)
+        # For simplicity, rebuild from scraped texts only
+        docs = [Document(t) for t in texts]
+        idx = VectorStoreIndex.from_documents(docs, storage_context=storage_context, embed_model=embed_model)
         idx.storage_context.persist()
+    st.success("✅ Index ready")
 
+    # Stage 6: Querying
+    st.info("🤖 Stage: Querying RAG index")
     answer = query_index(idx, query)
+    st.success("✅ Query complete")
     st.write(answer)
