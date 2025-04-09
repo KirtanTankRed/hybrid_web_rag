@@ -2,7 +2,7 @@ streamlit
 scrapy
 duckduckgo-search
 qdrant-client
-llama-index
+llama-index==0.10.28
 openai
 python-dotenv
 llama-index-vector-stores-qdrant
