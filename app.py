@@ -1,43 +1,14 @@
 # streamlit_app.py
+
 import streamlit as st
 import os
-import sys
-import asyncio
-
-# --- Safe AsyncioReactor Setup for Streamlit ---
-import asyncio as _asyncio
-from twisted.internet import asyncioreactor
-
-# On Windows, set appropriate event loop policy
-if sys.platform == "win32":
-    _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
-
-# Ensure there's an active loop before installing reactor
-try:
-    loop = _asyncio.get_event_loop()
-except RuntimeError:
-    loop = _asyncio.new_event_loop()
-    _asyncio.set_event_loop(loop)
-
-# Install the AsyncioSelectorReactor, ignoring if already installed
-try:
-    asyncioreactor.install(loop=loop)
-except Exception:
-    pass
-    
-
 from typing import List, Tuple
 
-
-
-# --- Imports after reactor setup ---
 import scrapy
-from scrapy.crawler import CrawlerRunner
+from scrapy.crawler import CrawlerProcess
 from scrapy.utils.log import configure_logging
-from twisted.internet import defer
 
 from duckduckgo_search import DDGS
-
 from qdrant_client import QdrantClient
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
@@ -60,7 +31,7 @@ vector_store    = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
 storage_context = StorageContext.from_defaults(vector_store=vector_store)
 embed_model     = OpenAIEmbedding()
 
-# --- Web Search Function ---
+# --- Web Search ---
 def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
     urls, snippets = [], []
     with DDGS() as ddgs:
@@ -71,32 +42,31 @@ def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
                 break
     return urls, snippets
 
-# --- Scrapy Spider & Runner ---
-scraped: List[str] = []
+# --- Scrapy Scraper (synchronous) ---
+scraped_results: List[str] = []
 
-class Spider(scrapy.Spider):
-    name = "st_spider"
+class WebScrapeSpider(scrapy.Spider):
+    name = "web_spider"
     custom_settings = {"LOG_LEVEL": "ERROR"}
-    def __init__(self, urls, **kwargs):
+
+    def __init__(self, urls: List[str], **kwargs):
         super().__init__(**kwargs)
         self.start_urls = urls
+
     def parse(self, response):
-        paras = response.css("p::text").getall()
-        txt = " ".join(p.strip() for p in paras if p.strip())
-        if txt:
-            scraped.append(txt)
+        paragraphs = response.css("p::text").getall()
+        content = " ".join(p.strip() for p in paragraphs if p.strip())
+        if content:
+            scraped_results.append(content)
 
-configure_logging({"LOG_LEVEL": "ERROR"})
-runner = CrawlerRunner()
-
-@defer.inlineCallbacks
-def _crawl(urls: List[str]):
-    yield runner.crawl(Spider, urls=urls)
-
-async def scrape_async(urls: List[str]) -> List[str]:
-    scraped.clear()
-    await _crawl(urls)
-    return scraped.copy()
+def scrape_urls(urls: List[str]) -> List[str]:
+    """Synchronously scrape <p> text from URLs via Scrapy."""
+    scraped_results.clear()
+    configure_logging({"LOG_LEVEL": "ERROR"})
+    process = CrawlerProcess()
+    process.crawl(WebScrapeSpider, urls=urls)
+    process.start(install_signal_handlers=False)
+    return scraped_results.copy()
 
 # --- Indexing & Query Helpers ---
 def load_index(texts: List[str]) -> VectorStoreIndex:
@@ -112,9 +82,8 @@ def query_index(idx: VectorStoreIndex, q: str) -> str:
     return str(idx.as_query_engine().query(q))
 
 # --- Streamlit UI ---
-st.title("Hybrid Web‑RAG System (Async Scrapy)")
+st.title("Hybrid Web‑RAG System (Scrapy Sync)")
 
-# Input
 query = st.text_input("Enter your query:")
 
 st.subheader("1. Select Modes")
@@ -157,8 +126,8 @@ if st.button("Submit") and query:
         if not user_urls:
             st.error("user_only or hybrid mode requires at least one URL.")
             st.stop()
-        texts += asyncio.run(scrape_async(user_urls))
-        st.write(f"Scraped {len(texts)} paragraphs from user URLs")
+        texts += scrape_urls(user_urls)
+        st.write(f"Scraped {len(texts)} documents from user URLs")
 
     # Stage 4: Search & scrape if needed
     if mode_used in ("search_only", "hybrid"):
@@ -166,8 +135,8 @@ if st.button("Submit") and query:
         search_urls, _ = ddg_search(query, top_n)
         st.write(f"Search returned {len(search_urls)} URLs")
         st.info("🌐 Scraping search result URLs")
-        texts += asyncio.run(scrape_async(search_urls))
-        st.write(f"Total scraped paragraphs: {len(texts)}")
+        texts += scrape_urls(search_urls)
+        st.write(f"Total scraped documents: {len(texts)}")
 
     # Stage 5: Indexing
     st.info("📦 Building or loading index")
