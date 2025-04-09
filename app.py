@@ -1,7 +1,8 @@
-# streamlit_app.py
+# app.py
 
 import streamlit as st
 import os
+import sys
 import json
 import subprocess
 import tempfile
@@ -20,7 +21,6 @@ QDRANT_API_KEY = st.secrets["QDRANT_API_KEY"]
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SEARCH_RESULTS = int(st.secrets.get("SEARCH_RESULTS", 5))
 
-# Set OpenAI key for embedding
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 # --- Clients Setup ---
@@ -48,12 +48,16 @@ def scrape_urls(urls: List[str]) -> List[str]:
         tmp_path = tmp.name
 
     result = subprocess.run(
-        ["python", "scraper_worker.py", tmp_path],
+        [sys.executable, "scraper_worker.py", tmp_path],
         capture_output=True,
         text=True,
     )
+
     if result.returncode != 0:
-        raise RuntimeError(f"Scraper failed:\n{result.stderr}")
+        st.error("🔴 Scraper subprocess failed:")
+        st.error(f"stderr:\n{result.stderr}")
+        st.error(f"stdout:\n{result.stdout}")
+        raise RuntimeError("Scraper subprocess failed—see logs above.")
 
     return json.loads(result.stdout.strip())
 
@@ -123,6 +127,7 @@ if st.button("Submit") and query:
         docs = [Document(t) for t in texts]
         idx = VectorStoreIndex.from_documents(docs, storage_context=storage_context, embed_model=embed_model)
         idx.storage_context.persist()
+
     st.success("✅ Index ready")
 
     st.info("🤖 Querying RAG index")
