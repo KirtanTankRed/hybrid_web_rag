@@ -2,11 +2,10 @@
 
 import streamlit as st
 import os
+import json
+import subprocess
+import tempfile
 from typing import List, Tuple
-
-import scrapy
-from scrapy.crawler import CrawlerProcess
-from scrapy.utils.log import configure_logging
 
 from duckduckgo_search import DDGS
 from qdrant_client import QdrantClient
@@ -42,47 +41,32 @@ def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
                 break
     return urls, snippets
 
-# --- Scrapy Scraper (synchronous) ---
-scraped_results: List[str] = []
-
-class WebScrapeSpider(scrapy.Spider):
-    name = "web_spider"
-    custom_settings = {"LOG_LEVEL": "ERROR"}
-
-    def __init__(self, urls: List[str], **kwargs):
-        super().__init__(**kwargs)
-        self.start_urls = urls
-
-    def parse(self, response):
-        paragraphs = response.css("p::text").getall()
-        content = " ".join(p.strip() for p in paragraphs if p.strip())
-        if content:
-            scraped_results.append(content)
-
+# --- Scraper Subprocess Call ---
 def scrape_urls(urls: List[str]) -> List[str]:
-    """Synchronously scrape <p> text from URLs via Scrapy."""
-    scraped_results.clear()
-    configure_logging({"LOG_LEVEL": "ERROR"})
-    process = CrawlerProcess()
-    process.crawl(WebScrapeSpider, urls=urls)
-    process.start(install_signal_handlers=False)
-    return scraped_results.copy()
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as tmp:
+        json.dump(urls, tmp)
+        tmp_path = tmp.name
+
+    result = subprocess.run(
+        ["python", "scraper_worker.py", tmp_path],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Scraper failed:\n{result.stderr}")
+
+    return json.loads(result.stdout.strip())
 
 # --- Indexing & Query Helpers ---
 def load_index(texts: List[str]) -> VectorStoreIndex:
-    names = [c.name for c in qdrant_client.get_collections().collections]
-    if COLL in names:
-        return VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
     docs = [Document(t) for t in texts]
-    idx = VectorStoreIndex.from_documents(docs, storage_context=storage_context, embed_model=embed_model)
-    idx.storage_context.persist()
-    return idx
+    return VectorStoreIndex.from_documents(docs, storage_context=storage_context, embed_model=embed_model)
 
 def query_index(idx: VectorStoreIndex, q: str) -> str:
     return str(idx.as_query_engine().query(q))
 
 # --- Streamlit UI ---
-st.title("Hybrid Web‑RAG System (Scrapy Sync)")
+st.title("Hybrid Web‑RAG System (Scrapy via Subprocess)")
 
 query = st.text_input("Enter your query:")
 
@@ -98,7 +82,6 @@ if st.button("Submit") and query:
     st.info("🚀 Starting pipeline...")
     user_urls = [u.strip() for u in urls_input.split(",") if u.strip()]
 
-    # Stage 1: docs_only
     if mode == "docs_only":
         st.info("📚 Loading existing index (docs_only)")
         names = [c.name for c in qdrant_client.get_collections().collections]
@@ -111,16 +94,12 @@ if st.button("Submit") and query:
         st.write(answer)
         st.stop()
 
-    # Stage 2: Determine effective web_mode
     st.info("🔧 Determining web_mode")
-    mode_used = web_mode
-    if web_mode == "auto":
-        mode_used = "user_only" if user_urls else "search_only"
+    mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
     st.write(f"Selected web_mode: **{mode_used}**")
 
     texts: List[str] = []
 
-    # Stage 3: Scrape user URLs if needed
     if mode_used in ("user_only", "hybrid"):
         st.info("🌐 Scraping user-provided URLs")
         if not user_urls:
@@ -129,7 +108,6 @@ if st.button("Submit") and query:
         texts += scrape_urls(user_urls)
         st.write(f"Scraped {len(texts)} documents from user URLs")
 
-    # Stage 4: Search & scrape if needed
     if mode_used in ("search_only", "hybrid"):
         st.info("🔎 Performing web search")
         search_urls, _ = ddg_search(query, top_n)
@@ -138,17 +116,15 @@ if st.button("Submit") and query:
         texts += scrape_urls(search_urls)
         st.write(f"Total scraped documents: {len(texts)}")
 
-    # Stage 5: Indexing
     st.info("📦 Building or loading index")
     if mode == "web_only":
         idx = load_index(texts)
-    else:  # docs_and_web
+    else:
         docs = [Document(t) for t in texts]
         idx = VectorStoreIndex.from_documents(docs, storage_context=storage_context, embed_model=embed_model)
         idx.storage_context.persist()
     st.success("✅ Index ready")
 
-    # Stage 6: Querying
     st.info("🤖 Querying RAG index")
     answer = query_index(idx, query)
     st.success("✅ Query complete")
