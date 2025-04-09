@@ -5,3 +5,4 @@ qdrant-client
 llama-index
 openai
 python-dotenv
+llama-index-vector-stores-qdrant
