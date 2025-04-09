@@ -1,0 +1,7 @@
+streamlit
+scrapy
+duckduckgo-search
+qdrant-client
+llama-index
+openai
+python-dotenv
