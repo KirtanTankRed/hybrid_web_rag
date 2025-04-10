@@ -13,7 +13,7 @@ from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.schema import Document
 from llama_index.core.query_engine.retriever_query_engine import RetrieverQueryEngine
-from llama_index.schema import NodeWithScore
+from llama_index.core.schema import NodeWithScore
 
 # --- Secrets from Streamlit ---
 QDRANT_URL     = st.secrets["QDRANT_URL"]
