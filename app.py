@@ -1,5 +1,3 @@
-# app.py
-
 import streamlit as st
 import os
 import sys
@@ -79,8 +77,27 @@ st.title("Hybrid Web‑RAG System (Scrapy via Subprocess)")
 query = st.text_input("Enter your query:")
 
 st.subheader("1. Select Modes")
-mode = st.selectbox("Content Mode", ["docs_only", "web_only", "docs_and_web"])
-web_mode = st.selectbox("Web Mode", ["auto", "user_only", "search_only", "hybrid"])
+
+mode = st.selectbox(
+    "Content Mode",
+    options=["docs_only", "web_only", "docs_and_web"],
+    format_func=lambda x: {
+        "docs_only": "📚 docs_only – Use only existing indexed documents",
+        "web_only": "🌐 web_only – Use only web content (user/search)",
+        "docs_and_web": "🧩 docs_and_web – Combine docs with fresh web content",
+    }[x]
+)
+
+web_mode = st.selectbox(
+    "Web Mode (for fetching content)",
+    options=["auto", "user_only", "search_only", "hybrid"],
+    format_func=lambda x: {
+        "auto": "🤖 auto – Pick user_only or search_only based on input",
+        "user_only": "🔗 user_only – Use only URLs you provide",
+        "search_only": "🔍 search_only – Use DuckDuckGo search results",
+        "hybrid": "🧪 hybrid – Use both user and search URLs",
+    }[x]
+)
 
 st.subheader("2. Provide Inputs")
 urls_input = st.text_area("User URLs (comma-separated)", "")
