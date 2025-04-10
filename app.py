@@ -63,8 +63,12 @@ def scrape_urls(urls: List[str]) -> List[str]:
 
 # --- Indexing & Query Helpers ---
 def load_index(texts: List[str]) -> VectorStoreIndex:
-    docs = [Document(t) for t in texts]
-    return VectorStoreIndex.from_documents(docs, storage_context=storage_context, embed_model=embed_model)
+    docs = [Document(text=t) for t in texts]
+    return VectorStoreIndex.from_documents(
+        docs,
+        storage_context=storage_context,
+        embed_model=embed_model,
+    )
 
 def query_index(idx: VectorStoreIndex, q: str) -> str:
     return str(idx.as_query_engine().query(q))
@@ -124,8 +128,12 @@ if st.button("Submit") and query:
     if mode == "web_only":
         idx = load_index(texts)
     else:
-        docs = [Document(t) for t in texts]
-        idx = VectorStoreIndex.from_documents(docs, storage_context=storage_context, embed_model=embed_model)
+        docs = [Document(text=t) for t in texts]
+        idx = VectorStoreIndex.from_documents(
+            docs,
+            storage_context=storage_context,
+            embed_model=embed_model,
+        )
         idx.storage_context.persist()
 
     st.success("✅ Index ready")
