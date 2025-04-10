@@ -1,3 +1,5 @@
+# scraper_worker.py
+
 import sys
 import json
 import scrapy
