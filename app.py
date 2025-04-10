@@ -12,7 +12,7 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.schema import Document
-from llama_index.query_engine import RetrieverQueryEngine
+from llama_index.core.query_engine.retriever_query_engine import RetrieverQueryEngine
 from llama_index.schema import NodeWithScore
 
 # --- Secrets from Streamlit ---
