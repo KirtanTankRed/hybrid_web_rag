@@ -66,12 +66,20 @@ def scrape_urls(urls: List[str]) -> List[Dict[str, str]]:
 def load_index_with_meta(items: List[Dict[str, str]]) -> VectorStoreIndex:
     """
     Build a new VectorStoreIndex from scraped items,
-    each item must have 'text' and 'url'.
+    coercing text to str and skipping bad entries.
     """
-    docs = [
-        Document(text=item["text"], metadata={"source": item["url"]})
-        for item in items
-    ]
+    docs = []
+    for i, item in enumerate(items):
+        url = item.get("url")
+        text = item.get("text")
+        if not isinstance(url, str) or text is None:
+            st.warning(f"Skipping bad item at index {i}: {item!r}")
+            continue
+        text_str = str(text)
+        docs.append(Document(text=text_str, metadata={"source": url}))
+    if not docs:
+        st.error("No valid documents to index!")
+        st.stop()
     return VectorStoreIndex.from_documents(
         docs,
         storage_context=storage_context,
@@ -164,13 +172,6 @@ if st.button("Submit") and query:
         st.info("🌐 Scraping search result URLs")
         scraped_items += scrape_urls(search_urls)
         st.write(f"Total scraped docs: {len(scraped_items)}")
-
-    # DEBUG: Validate scraped_items shape
-    st.write("🛠️ Debug preview:", scraped_items[:3])
-    for i, item in enumerate(scraped_items):
-        if not isinstance(item, dict) or "text" not in item or "url" not in item:
-            st.error(f"Bad item at index {i}: {item!r}")
-            st.stop()
 
     # INDEX BUILDING
     st.info("📦 Building index with metadata")
