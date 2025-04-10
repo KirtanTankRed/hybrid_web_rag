@@ -64,6 +64,10 @@ def scrape_urls(urls: List[str]) -> List[Dict[str, str]]:
 
 # --- Indexing & Query Helpers with Metadata ---
 def load_index_with_meta(items: List[Dict[str, str]]) -> VectorStoreIndex:
+    """
+    Build a brand‑new VectorStoreIndex from scraped items,
+    each item must have 'text' and 'url'.
+    """
     docs = [
         Document(text=item["text"], metadata={"source": item["url"]})
         for item in items
@@ -117,20 +121,21 @@ if st.button("Submit") and query:
     st.info("🚀 Starting pipeline...")
     user_urls = [u.strip() for u in urls_input.split(",") if u.strip()]
 
-    # docs_only mode
+    # -------------- DOCS_ONLY --------------
     if mode == "docs_only":
         st.info("📚 Loading existing index (docs_only)")
         names = [c.name for c in qdrant_client.get_collections().collections]
         if COLL not in names:
             st.warning(f"Collection '{COLL}' not found. Use web_only or docs_and_web first.")
             st.stop()
+        # load from existing vector store
         idx = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
         answer = query_index_with_sources(idx, query)
         st.success("✅ Completed docs_only query")
         st.write(answer)
         st.stop()
 
-    # determine web mode
+    # -------------- WEB MODES --------------
     st.info("🔧 Determining web_mode")
     web_mode = st.selectbox(
         "Web Mode (for fetching content)",
@@ -146,16 +151,15 @@ if st.button("Submit") and query:
     mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
     st.write(f"Selected web_mode: **{mode_used}**")
 
-    # collect scraped items (with url + text)
+    # -------------- SCRAPING --------------
     scraped_items: List[Dict[str, str]] = []
-
     if mode_used in ("user_only", "hybrid"):
         st.info("🌐 Scraping user-provided URLs")
         if not user_urls:
             st.error("user_only or hybrid mode requires at least one URL.")
             st.stop()
         scraped_items += scrape_urls(user_urls)
-        st.write(f"Scraped {len(scraped_items)} documents from user URLs")
+        st.write(f"Scraped {len(scraped_items)} docs from user URLs")
 
     if mode_used in ("search_only", "hybrid"):
         st.info("🔎 Performing web search")
@@ -163,20 +167,18 @@ if st.button("Submit") and query:
         st.write(f"Search returned {len(search_urls)} URLs")
         st.info("🌐 Scraping search result URLs")
         scraped_items += scrape_urls(search_urls)
-        st.write(f"Total scraped documents: {len(scraped_items)}")
+        st.write(f"Total scraped docs: {len(scraped_items)}")
 
-    # build or load index
+    # -------------- INDEX BUILDING --------------
     st.info("📦 Building or loading index")
-    if mode == "web_only":
-        idx = load_index_with_meta(scraped_items)
-    else:
-        # merge new docs into existing store
-        idx = load_index_with_meta(scraped_items)
+    # Always use metadata‑aware loader
+    idx = load_index_with_meta(scraped_items)
+    if mode != "web_only":
+        # persist for future docs_only queries
         idx.storage_context.persist()
-
     st.success("✅ Index ready")
 
-    # query with sources
+    # -------------- QUERY & DISPLAY --------------
     st.info("🤖 Querying RAG index")
     answer = query_index_with_sources(idx, query)
     st.success("✅ Query complete")
