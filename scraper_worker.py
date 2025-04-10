@@ -1,5 +1,3 @@
-# scraper_worker.py
-
 import sys
 import json
 import scrapy
@@ -22,7 +20,6 @@ class WebScrapeSpider(scrapy.Spider):
             self.scraped_data.append(content)
 
     def closed(self, reason):
-        # Dump the scraped data as JSON
         print(json.dumps(self.scraped_data))
 
 def main():
@@ -30,7 +27,14 @@ def main():
         print("[]")
         return
 
-    urls = json.loads(sys.argv[1])
+    json_path = sys.argv[1]
+    try:
+        with open(json_path, 'r') as f:
+            urls = json.load(f)
+    except Exception:
+        print("[]")
+        return
+
     configure_logging({"LOG_LEVEL": "ERROR"})
     process = CrawlerProcess()
     process.crawl(WebScrapeSpider, urls=urls)
