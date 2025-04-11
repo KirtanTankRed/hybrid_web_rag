@@ -3,6 +3,7 @@ import os
 import json
 import subprocess
 import tempfile
+import sys
 from typing import List, Tuple, Dict
 
 from duckduckgo_search import DDGS
@@ -12,7 +13,7 @@ from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.schema import Document
 from llama_index.core.query_engine.retriever_query_engine import RetrieverQueryEngine
-from llama_index.core.schema import NodeWithScore  # updated import path
+from llama_index.core.schema import NodeWithScore
 
 # --- Secrets from Streamlit ---
 QDRANT_URL     = st.secrets["QDRANT_URL"]
@@ -25,9 +26,9 @@ os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 # --- Clients Setup ---
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 COLL = "real_estate_docs"
-vector_store    = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
+vector_store = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
 storage_context = StorageContext.from_defaults(vector_store=vector_store)
-embed_model     = OpenAIEmbedding()
+embed_model = OpenAIEmbedding()
 
 # --- Web Search ---
 def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
@@ -40,7 +41,7 @@ def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
                 break
     return urls, snippets
 
-# --- Scraper Subprocess Call (returns list of dicts) ---
+# --- Scraper Subprocess ---
 def scrape_urls(urls: List[str]) -> List[Dict[str, str]]:
     with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as tmp:
         json.dump(urls, tmp)
@@ -58,10 +59,9 @@ def scrape_urls(urls: List[str]) -> List[Dict[str, str]]:
         st.error(f"stdout:\n{result.stdout}")
         raise RuntimeError("Scraper subprocess failed—see logs above.")
 
-    # Returns JSON list of {"url":..., "text":...}
     return json.loads(result.stdout.strip())
 
-# --- Metadata‑aware Index Loader ---
+# --- Metadata-aware Index Loader ---
 def load_index_with_meta(items: List[Dict[str, str]]) -> VectorStoreIndex:
     docs = []
     for i, item in enumerate(items):
@@ -80,6 +80,7 @@ def load_index_with_meta(items: List[Dict[str, str]]) -> VectorStoreIndex:
         embed_model=embed_model,
     )
 
+# --- Custom Query Engine with Source Metadata ---
 class SourceAnnotatingQueryEngine(RetrieverQueryEngine):
     def query(self, query: str) -> str:
         nodes: List[NodeWithScore] = self.as_retriever().retrieve(query)
@@ -96,7 +97,8 @@ def query_index_with_sources(idx: VectorStoreIndex, q: str) -> str:
     )
     return qe.query(q)
 
-# --- Streamlit UI ---
+# === Streamlit UI ===
+
 st.title("Hybrid Web‑RAG System with Source Citations")
 
 query = st.text_input("Enter your query:")
@@ -116,9 +118,24 @@ st.subheader("2. Provide Inputs")
 urls_input = st.text_area("User URLs (comma-separated)", "")
 top_n = st.slider("Top search results to ingest", 1, 10, SEARCH_RESULTS)
 
+st.subheader("3. Web Mode")
+web_mode = st.selectbox(
+    "Web Mode",
+    options=["auto", "user_only", "search_only", "hybrid"],
+    format_func=lambda x: {
+        "auto": "🤖 auto",
+        "user_only": "🔗 user_only",
+        "search_only": "🔍 search_only",
+        "hybrid": "🧪 hybrid",
+    }[x]
+)
+
 if st.button("Submit") and query:
     st.info("🚀 Starting pipeline...")
+
     user_urls = [u.strip() for u in urls_input.split(",") if u.strip()]
+    mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
+    st.write(f"Using mode: **{mode_used}**")
 
     # --- docs_only ---
     if mode == "docs_only":
@@ -131,29 +148,14 @@ if st.button("Submit") and query:
         st.write(query_index_with_sources(idx, query))
         st.stop()
 
-    # --- Determine web_mode ---
-    st.info("🔧 Determining web_mode")
-    web_mode = st.selectbox(
-        "Web Mode",
-        options=["auto", "user_only", "search_only", "hybrid"],
-        index=0,
-        format_func=lambda x: {
-            "auto": "🤖 auto",
-            "user_only": "🔗 user_only",
-            "search_only": "🔍 search_only",
-            "hybrid": "🧪 hybrid",
-        }[x]
-    )
-    mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
-    st.write(f"Using mode: **{mode_used}**")
-
-    # --- Scraping ---
+    # --- Scraping Phase ---
     scraped: List[Dict[str, str]] = []
     if mode_used in ("user_only", "hybrid"):
         if not user_urls:
             st.error("Provide at least one URL for user_only/hybrid.")
             st.stop()
         scraped += scrape_urls(user_urls)
+
     if mode_used in ("search_only", "hybrid"):
         search_urls, _ = ddg_search(query, top_n)
         scraped += scrape_urls(search_urls)
