@@ -2,10 +2,10 @@
 
 import streamlit as st
 import os
+import sys
 import json
 import subprocess
 import tempfile
-import sys
 from typing import List, Tuple, Dict
 
 from duckduckgo_search import DDGS
@@ -26,11 +26,13 @@ SEARCH_RESULTS = int(st.secrets.get("SEARCH_RESULTS", 5))
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 # --- Clients Setup ---
+stage_msg = st.status("🔧 Initializing clients")
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 COLL = "real_estate_docs"
-vector_store    = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
+vector_store = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
 storage_context = StorageContext.from_defaults(vector_store=vector_store)
-embed_model     = OpenAIEmbedding()
+embed_model = OpenAIEmbedding()
+stage_msg.update(label="✅ Clients initialized", state="complete")
 
 # --- Web Search ---
 def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
@@ -92,11 +94,10 @@ class SourceAnnotatingQueryEngine(RetrieverQueryEngine):
         return answer + sources_md
 
 def query_index_with_sources(idx: VectorStoreIndex, q: str) -> str:
-    svc = idx.service_context
     qe = SourceAnnotatingQueryEngine.from_args(
         retriever=idx.as_retriever(),
-        llm_predictor=svc.llm_predictor,
-        response_builder=svc.response_builder,
+        llm_predictor=embed_model.get_llm_predictor(),
+        response_builder=embed_model.get_response_builder(),
     )
     return qe.query(q)
 
@@ -113,7 +114,7 @@ mode = st.selectbox(
     format_func=lambda x: {
         "docs_only": "📚 docs_only – existing index only",
         "web_only": "🌐 web_only – fresh web content",
-        "docs_and_web": "🧩 docs_and_web – combine both",
+        "docs_and_web": "🧹 docs_and_web – combine both",
     }[x]
 )
 
@@ -140,7 +141,6 @@ if st.button("Submit") and query:
     mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
     st.write(f"Using web_mode: **{mode_used}**")
 
-    # docs_only
     if mode == "docs_only":
         st.info("📚 Loading existing index")
         names = [c.name for c in qdrant_client.get_collections().collections]
@@ -148,25 +148,31 @@ if st.button("Submit") and query:
             st.warning("No existing collection—run web_only or docs_and_web first.")
             st.stop()
         idx = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
+        st.success("📂 Existing index loaded")
         st.write(query_index_with_sources(idx, query))
         st.stop()
 
-    # Scraping phase
     scraped: List[Dict[str, str]] = []
     if mode_used in ("user_only", "hybrid"):
         if not user_urls:
             st.error("Provide at least one URL for user_only/hybrid.")
             st.stop()
-        scraped += scrape_urls(user_urls)
+        with st.status("🔗 Scraping user URLs..."):
+            scraped += scrape_urls(user_urls)
 
     if mode_used in ("search_only", "hybrid"):
-        search_urls, _ = ddg_search(query, top_n)
-        scraped += scrape_urls(search_urls)
+        with st.status("🔍 Searching web & scraping..."):
+            search_urls, _ = ddg_search(query, top_n)
+            scraped += scrape_urls(search_urls)
 
-    # Build & optionally persist index
-    idx = load_index_with_meta(scraped)
+    with st.status("🔄 Building index..."):
+        idx = load_index_with_meta(scraped)
+        st.success("📊 Index built")
+
     if mode != "web_only":
-        idx.storage_context.persist()
+        with st.status("💾 Saving index to storage..."):
+            idx.storage_context.persist()
+            st.success("📁 Index persisted")
 
-    # Query & display
-    st.write(query_index_with_sources(idx, query))
+    with st.status("🔢 Querying index..."):
+        st.write(query_index_with_sources(idx, query))
