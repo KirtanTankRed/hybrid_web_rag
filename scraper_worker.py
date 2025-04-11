@@ -114,11 +114,7 @@ mode = st.selectbox(
     }[x]
 )
 
-st.subheader("2. Provide Inputs")
-urls_input = st.text_area("User URLs (comma-separated)", "")
-top_n = st.slider("Top search results to ingest", 1, 10, SEARCH_RESULTS)
-
-st.subheader("3. Web Mode")
+st.subheader("2. Web Mode")
 web_mode = st.selectbox(
     "Web Mode",
     options=["auto", "user_only", "search_only", "hybrid"],
@@ -129,6 +125,11 @@ web_mode = st.selectbox(
         "hybrid": "🧪 hybrid",
     }[x]
 )
+
+st.subheader("3. Provide Inputs")
+urls_input = st.text_area("User URLs (comma-separated)", "")
+top_n = st.slider("Top search results to ingest", 1, 10, SEARCH_RESULTS)
+
 
 if st.button("Submit") and query:
     st.info("🚀 Starting pipeline...")
