@@ -17,9 +17,14 @@ class WebScrapeSpider(scrapy.Spider):
         paragraphs = response.css("p::text").getall()
         content = " ".join(p.strip() for p in paragraphs if p.strip())
         if content:
-            self.scraped_data.append(content)
+            # Return a dict, not just the string
+            self.scraped_data.append({
+                "url": response.url,
+                "text": content
+            })
 
     def closed(self, reason):
+        # Print list of dicts
         print(json.dumps(self.scraped_data))
 
 def main():
