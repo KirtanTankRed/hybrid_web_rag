@@ -92,7 +92,6 @@ class SourceAnnotatingQueryEngine(RetrieverQueryEngine):
         return answer + sources_md
 
 def query_index_with_sources(idx: VectorStoreIndex, q: str) -> str:
-    # Use the service_context on the index to grab the predictor & builder
     svc = idx._service_context
     qe = SourceAnnotatingQueryEngine.from_args(
         retriever=idx.as_retriever(),
@@ -137,7 +136,6 @@ web_mode = st.selectbox(
 if st.button("Submit") and query:
     st.info("🚀 Starting pipeline...")
 
-    # Determine actual web mode
     user_urls = [u.strip() for u in urls_input.split(",") if u.strip()]
     mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
     st.write(f"Using web_mode: **{mode_used}**")
