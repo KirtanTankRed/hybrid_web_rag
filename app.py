@@ -2,10 +2,10 @@
 
 import streamlit as st
 import os
-import sys
 import json
 import subprocess
 import tempfile
+import sys
 from typing import List, Tuple, Dict
 
 from duckduckgo_search import DDGS
@@ -92,7 +92,7 @@ class SourceAnnotatingQueryEngine(RetrieverQueryEngine):
         return answer + sources_md
 
 def query_index_with_sources(idx: VectorStoreIndex, q: str) -> str:
-    svc = idx._service_context
+    svc = idx.service_context
     qe = SourceAnnotatingQueryEngine.from_args(
         retriever=idx.as_retriever(),
         llm_predictor=svc.llm_predictor,
