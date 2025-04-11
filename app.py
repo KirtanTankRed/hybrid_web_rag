@@ -1,9 +1,11 @@
+# app.py
+
 import streamlit as st
 import os
+import sys
 import json
 import subprocess
 import tempfile
-import sys
 from typing import List, Tuple, Dict
 
 from duckduckgo_search import DDGS
@@ -26,9 +28,9 @@ os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 # --- Clients Setup ---
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 COLL = "real_estate_docs"
-vector_store = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
+vector_store    = QdrantVectorStore(client=qdrant_client, collection_name=COLL)
 storage_context = StorageContext.from_defaults(vector_store=vector_store)
-embed_model = OpenAIEmbedding()
+embed_model     = OpenAIEmbedding()
 
 # --- Web Search ---
 def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
@@ -67,10 +69,10 @@ def load_index_with_meta(items: List[Dict[str, str]]) -> VectorStoreIndex:
     for i, item in enumerate(items):
         url = item.get("url")
         text = item.get("text")
-        if not isinstance(url, str) or text is None:
+        if not isinstance(url, str) or not isinstance(text, str):
             st.warning(f"Skipping bad item at index {i}: {item!r}")
             continue
-        docs.append(Document(text=str(text), metadata={"source": url}))
+        docs.append(Document(text=text, metadata={"source": url}))
     if not docs:
         st.error("No valid documents to index!")
         st.stop()
@@ -90,10 +92,12 @@ class SourceAnnotatingQueryEngine(RetrieverQueryEngine):
         return answer + sources_md
 
 def query_index_with_sources(idx: VectorStoreIndex, q: str) -> str:
+    # Use the service_context on the index to grab the predictor & builder
+    svc = idx._service_context
     qe = SourceAnnotatingQueryEngine.from_args(
         retriever=idx.as_retriever(),
-        llm_predictor=idx._llm_predictor,
-        response_builder=idx._response_builder,
+        llm_predictor=svc.llm_predictor,
+        response_builder=svc.response_builder,
     )
     return qe.query(q)
 
@@ -123,21 +127,22 @@ web_mode = st.selectbox(
     "Web Mode",
     options=["auto", "user_only", "search_only", "hybrid"],
     format_func=lambda x: {
-        "auto": "🤖 auto",
-        "user_only": "🔗 user_only",
-        "search_only": "🔍 search_only",
-        "hybrid": "🧪 hybrid",
+        "auto": "🤖 auto – pick user or search automatically",
+        "user_only": "🔗 user_only – only your URLs",
+        "search_only": "🔍 search_only – DuckDuckGo results",
+        "hybrid": "🧪 hybrid – both user & search URLs",
     }[x]
 )
 
 if st.button("Submit") and query:
     st.info("🚀 Starting pipeline...")
 
+    # Determine actual web mode
     user_urls = [u.strip() for u in urls_input.split(",") if u.strip()]
     mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
-    st.write(f"Using mode: **{mode_used}**")
+    st.write(f"Using web_mode: **{mode_used}**")
 
-    # --- docs_only ---
+    # docs_only
     if mode == "docs_only":
         st.info("📚 Loading existing index")
         names = [c.name for c in qdrant_client.get_collections().collections]
@@ -148,7 +153,7 @@ if st.button("Submit") and query:
         st.write(query_index_with_sources(idx, query))
         st.stop()
 
-    # --- Scraping Phase ---
+    # Scraping phase
     scraped: List[Dict[str, str]] = []
     if mode_used in ("user_only", "hybrid"):
         if not user_urls:
@@ -160,10 +165,10 @@ if st.button("Submit") and query:
         search_urls, _ = ddg_search(query, top_n)
         scraped += scrape_urls(search_urls)
 
-    # --- Build & Persist Index ---
+    # Build & optionally persist index
     idx = load_index_with_meta(scraped)
     if mode != "web_only":
         idx.storage_context.persist()
 
-    # --- Query & Display ---
+    # Query & display
     st.write(query_index_with_sources(idx, query))
