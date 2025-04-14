@@ -1,14 +1,15 @@
 # app.py
 
-import streamlit as st
 import os
 import sys
 import json
 import subprocess
 import tempfile
+import time
 from typing import List, Tuple, Dict
 
-from duckduckgo_search import DDGS
+import streamlit as st
+from duckduckgo_search import DDGS, DuckDuckGoSearchException
 from qdrant_client import QdrantClient
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
@@ -34,16 +35,32 @@ storage_context = StorageContext.from_defaults(vector_store=vector_store)
 embed_model = OpenAIEmbedding()
 stage_msg.update(label="✅ Clients initialized", state="complete")
 
-# --- Web Search ---
+# --- Web Search with fallback and caching ---
+@st.cache_data(show_spinner=False)
 def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
-    urls, snippets = [], []
-    with DDGS() as ddgs:
-        for i, r in enumerate(ddgs.text(query), 1):
-            urls.append(r["href"])
-            snippets.append(r["body"])
-            if i >= top_n:
-                break
-    return urls, snippets
+    """
+    Try HTML backend first, then fall back to API backend if it fails.
+    Returns (urls, snippets).
+    """
+    def _search(backend: str):
+        urls, snippets = [], []
+        with DDGS(backend=backend, timeout=10) as ddgs:
+            for i, r in enumerate(ddgs.text(query), 1):
+                urls.append(r["href"])
+                snippets.append(r["body"])
+                if i >= top_n:
+                    break
+        return urls, snippets
+
+    try:
+        return _search("html")
+    except DuckDuckGoSearchException as e:
+        st.warning(f"⚠️ HTML backend failed ({e}), retrying with API backend…")
+        try:
+            return _search("api")
+        except DuckDuckGoSearchException as e2:
+            st.error(f"🔴 API backend also failed: {e2}")
+            return [], []
 
 # --- Scraper Subprocess ---
 def scrape_urls(urls: List[str]) -> List[Dict[str, str]]:
@@ -141,6 +158,7 @@ if st.button("Submit") and query:
     mode_used = web_mode if web_mode != "auto" else ("user_only" if user_urls else "search_only")
     st.write(f"Using web_mode: **{mode_used}**")
 
+    # docs_only path
     if mode == "docs_only":
         st.info("📚 Loading existing index")
         names = [c.name for c in qdrant_client.get_collections().collections]
@@ -153,6 +171,8 @@ if st.button("Submit") and query:
         st.stop()
 
     scraped: List[Dict[str, str]] = []
+
+    # user_only / hybrid
     if mode_used in ("user_only", "hybrid"):
         if not user_urls:
             st.error("Provide at least one URL for user_only/hybrid.")
@@ -160,19 +180,24 @@ if st.button("Submit") and query:
         with st.status("🔗 Scraping user URLs..."):
             scraped += scrape_urls(user_urls)
 
+    # search_only / hybrid
     if mode_used in ("search_only", "hybrid"):
         with st.status("🔍 Searching web & scraping..."):
-            search_urls, _ = ddg_search(query, top_n)
-            scraped += scrape_urls(search_urls)
+            urls, snippets = ddg_search(query, top_n)
+            st.write(f"Retrieved {len(urls)} search results.")
+            scraped += scrape_urls(urls)
 
+    # Build index
     with st.status("🔄 Building index..."):
         idx = load_index_with_meta(scraped)
         st.success("📊 Index built")
 
+    # Persist index if needed
     if mode != "web_only":
         with st.status("💾 Saving index to storage..."):
             idx.storage_context.persist()
             st.success("📁 Index persisted")
 
+    # Query and display
     with st.status("🔢 Querying index..."):
         st.write(query_index_with_sources(idx, query))
