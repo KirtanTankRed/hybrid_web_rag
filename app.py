@@ -9,7 +9,8 @@ import time
 from typing import List, Tuple, Dict
 
 import streamlit as st
-from duckduckgo_search import DDGS, DuckDuckGoSearchException
+from duckduckgo_search import DDGS
+from duckduckgo_search.duckduckgo_search import DuckDuckGoSearchException
 from qdrant_client import QdrantClient
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
