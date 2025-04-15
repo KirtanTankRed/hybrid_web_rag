@@ -10,7 +10,6 @@ from typing import List, Tuple, Dict
 
 import streamlit as st
 from duckduckgo_search import DDGS
-from duckduckgo_search.duckduckgo_search import DuckDuckGoSearchException
 from qdrant_client import QdrantClient
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
@@ -39,29 +38,19 @@ stage_msg.update(label="✅ Clients initialized", state="complete")
 # --- Web Search with fallback and caching ---
 @st.cache_data(show_spinner=False)
 def ddg_search(query: str, top_n: int) -> Tuple[List[str], List[str]]:
-    """
-    Try HTML backend first, then fall back to API backend if it fails.
-    Returns (urls, snippets).
-    """
-    def _search(backend: str):
-        urls, snippets = [], []
-        with DDGS(backend=backend, timeout=10) as ddgs:
-            for i, r in enumerate(ddgs.text(query), 1):
-                urls.append(r["href"])
-                snippets.append(r["body"])
-                if i >= top_n:
-                    break
-        return urls, snippets
+# def duckduckgo_search_structured(query, max_results=5):
+    urls   = []
+    snippets = []
 
-    try:
-        return _search("html")
-    except DuckDuckGoSearchException as e:
-        st.warning(f"⚠️ HTML backend failed ({e}), retrying with API backend…")
-        try:
-            return _search("api")
-        except DuckDuckGoSearchException as e2:
-            st.error(f"🔴 API backend also failed: {e2}")
-            return [], []
+    with DDGS() as ddgs:
+        for i, result in enumerate(ddgs.text(query), 1):
+            # result is a dict like {'title':…, 'href':…, 'body':…}
+            urls.append(result['href'])
+            snippets.append(result['body'])
+            if i >= top_n:
+                break
+
+    return urls, snippets
 
 # --- Scraper Subprocess ---
 def scrape_urls(urls: List[str]) -> List[Dict[str, str]]:
