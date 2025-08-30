@@ -142,7 +142,7 @@ Real estate in India during 2025 is showing strong growth in Tier-2 cities, with
 
 * Search about past event
 Indian forces operation against Somali Pirates
-[Indian forces operation against Somali Pirates](https://github.com/KirtanTankRed/hybrid_web_rag/blob/main/images/image%20(5).png)
+![Indian forces operation against Somali Pirates](https://github.com/KirtanTankRed/hybrid_web_rag/blob/main/images/anti%20piracy%20operation%20by%20Indian%20forces.png)
 
 * Search about recent developments on any topic
 ![Recent development on AMCA aircraft](https://github.com/KirtanTankRed/hybrid_web_rag/blob/main/images/amca%20search.png)
