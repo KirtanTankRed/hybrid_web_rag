@@ -150,4 +150,4 @@ Real estate in India during 2025 is showing strong growth in Tier-2 cities, with
 
 ## 📜 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project and it's contents can only be used after creator's written permission.
