@@ -145,7 +145,7 @@ Indian forces operation against Somali Pirates
 [Indian forces operation against Somali Pirates](https://github.com/KirtanTankRed/hybrid_web_rag/blob/main/images/image%20(5).png)
 
 * Search about recent developments on any topic
-![Search about recent development on AMCA aircraft] (
+![Recent development on AMCA aircraft](https://github.com/KirtanTankRed/hybrid_web_rag/blob/main/images/amca%20search.png)
 ## 🔮 Future Improvements
 
 * Add caching of scraped content
